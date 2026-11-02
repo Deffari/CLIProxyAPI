@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  cliproxyapi:
+    image: ghcr.io/router-for-me/cliproxyapi:latest
+    container_name: cliproxyapi-gemini
+    restart: unless-stopped
+    ports:
+      - "8317:8317"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - ./auths:/app/auths
+      - cpa-data:/root/.cli-proxy-api
+    command: ["--config", "/app/config.yaml"]
+
+volumes:
+  cpa-data:

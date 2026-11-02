@@ -1,0 +1,145 @@
+# Optimal CLIProxyAPI v8 configuration for Google AI Pro + Gemini access
+# via OpenAI-compatible API endpoint.
+#
+# Usage:
+#   1. Copy this file to config.yaml
+#   2. Run: ./cli-proxy-api --config config.yaml --tui
+#   3. Authenticate with Antigravity (Google) in the TUI
+#   4. Point your OpenAI client at http://localhost:8317/v1
+#
+# For multi-account: repeat the Antigravity login for each Google account.
+
+config-version: 8
+
+# Server configuration
+server:
+  host: ""          # bind to all interfaces
+  port: 8317        # default CLIProxyAPI port
+  response-compression:
+    enabled: true
+    min-bytes: 1024
+
+# Client authentication (keys your apps use to connect)
+access:
+  api-keys:
+    - "sk-cpa-gemini-your-secret-key-here"
+
+# Routing: load balancing and retry
+routing:
+  strategy: "round-robin"
+  session-affinity: true              # sticky sessions for KV-cache reuse
+  session-affinity-ttl: "1h"
+  session-affinity-subagents: true    # subagents inherit parent's account
+  session-affinity-rebind-on: "any"   # rebind on any failure for max reliability
+  force-model-prefix: false
+
+  retry:
+    request-retry: 3                  # try 3 more credentials on failure
+    max-retry-credentials: 0          # try all available
+    max-retry-interval: 30            # max 30s wait between retries
+
+  cooldown:
+    disable-cooling: false            # keep cooling enabled
+    save-cooldown-status: true        # persist cooldown to disk
+    transient-error-cooldown-seconds: 0  # use default 60s for transient errors
+
+# Request behavior
+requests:
+  proxy-url: ""
+  tls-handshake-timeout-seconds: 0
+  streaming:
+    keepalive-seconds: 15
+    bootstrap-retries: 1
+    send-keepalive-before-ft: false
+
+# OAuth and provider configuration
+oauth:
+  auth-dir: "~/.cli-proxy-api"
+
+  # Model aliases: stable client names → latest upstream models
+  # Update the "name" fields when Google publishes new models.
+  model-alias:
+    antigravity:
+      # gemini-flash-lite always points to the latest Flash model
+      - name: "gemini-3.8-flash"
+        alias: "gemini-flash-lite"
+        display-name: "Gemini Flash Lite (Latest)"
+        force-mapping: true
+        fork: true
+
+      # Alias for the latest Pro/Argon model
+      - name: "gemini-4-argon"
+        alias: "gemini-argon-latest"
+        display-name: "Gemini Argon (Latest)"
+        force-mapping: true
+        fork: true
+
+      # Alias for the Pro agent model
+      - name: "gemini-pro-agent"
+        alias: "gemini-pro-latest"
+        display-name: "Gemini Pro (Latest)"
+        force-mapping: true
+        fork: true
+
+  # Provider-specific settings
+  providers:
+    antigravity:
+      # Obfuscate sensitive words in system instructions
+      sensitive-words:
+        - "API"
+        - "proxy"
+        - "CLIProxyAPI"
+        - "cliproxy"
+
+      # Connection pooling for reduced latency
+      connection-pool:
+        enabled: true
+        idle-conn-timeout: "30s"
+        max-idle-conns-per-host: 2
+
+      # Use credits as fallback after free-tier quota
+      antigravity-credits: true
+
+      # Model-level cooling: only cool the specific model that hit quota
+      model-level-cooling: true
+
+  # Custom error classification for Antigravity
+  request-scoped-errors:
+    antigravity:
+      # Rate limit: try next account, cool this model
+      - status: 429
+        match:
+          - "quota"
+          - "rate_limit"
+          - "too_many_requests"
+        action: "continue-and-cooldown"
+
+      # Server errors: try next account, no cooldown
+      - status: 500
+        match:
+          - "internal"
+        action: "continue"
+
+      - status: 502
+        action: "continue"
+
+      - status: 503
+        match:
+          - "overloaded"
+        action: "continue-and-cooldown"
+
+      # Client errors: stop immediately (not a server issue)
+      - status: 400
+        match:
+          - "context_length"
+          - "maximum_context"
+        action: "stop"
+
+# Observability
+observability:
+  logs:
+    debug: false
+    request-log: false
+  usage:
+    usage-statistics-enabled: true
+    redis-usage-queue-retention-seconds: 60
